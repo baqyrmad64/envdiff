@@ -16,6 +16,13 @@ class IgnoreList:
         if pattern not in self._patterns:
             self._patterns.append(pattern)
 
+    def remove(self, pattern: str) -> None:
+        """Remove a pattern from the ignore list. Raises ValueError if not present."""
+        try:
+            self._patterns.remove(pattern)
+        except ValueError:
+            raise ValueError(f"Pattern {pattern!r} not found in ignore list")
+
     def should_ignore(self, key: str) -> bool:
         """Return True if the key matches any ignore pattern."""
         for pattern in self._patterns:
