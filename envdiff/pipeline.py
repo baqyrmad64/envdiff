@@ -19,7 +19,15 @@ class DiffPipeline:
     def errors(self) -> List[str]:
         return list(self._errors)
 
+    @property
+    def has_errors(self) -> bool:
+        """Return True if any errors were recorded during the last run."""
+        return bool(self._errors)
+
     def run(self) -> Optional[Report]:
+        """Execute the diff pipeline and return a Report, or None if the base file fails."""
+        self._errors.clear()
+
         try:
             base_env = parse_file(self.base_file)
         except (OSError, ValueError) as exc:
