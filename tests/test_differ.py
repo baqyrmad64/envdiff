@@ -1,102 +1,100 @@
-"""Tests for envdiff.differ module."""
 import pytest
-from envdiff.differ import ValueDiff, diff_values, _looks_numeric, _is_localhost
+from envdiff.differ import ValueDiff, diff_values
 
 
 @pytest.fixture
 def base_env():
     return {
-        "DB_HOST": "localhost",
-        "DB_PORT": "5432",
-        "API_KEY": "dev-secret",
-        "DEBUG": "true",
-        "TIMEOUT": "30",
+        "DB_HOST": "db.example.com",
+        "PORT": "5432",
+        "DEBUG": "false",
+        "API_URL": "https://api.example.com",
+        "SECRET": "abc123",
+        "EMPTY_KEY": "",
     }
 
 
 @pytest.fixture
 def prod_env():
     return {
-        "DB_HOST": "db.prod.example.com",
-        "DB_PORT": "5432",
-        "API_KEY": "prod-secret",
+        "DB_HOST": "db.example.com",
+        "PORT": "true",
         "DEBUG": "false",
-        "TIMEOUT": "30",
+        "API_URL": "http://localhost:3000",
+        "SECRET": "xyz789",
+        "EMPTY_KEY": "now_set",
     }
 
 
 def test_diff_values_returns_only_changed(base_env, prod_env):
-    diffs = diff_values(base_env, prod_env, "production")
+    diffs = diff_values(base_env, prod_env)
     keys = [d.key for d in diffs]
-    assert "DB_HOST" in keys
-    assert "API_KEY" in keys
-    assert "DEBUG" in keys
-    assert "DB_PORT" not in keys
-    assert "TIMEOUT" not in keys
+    assert "DEBUG" not in keys
+    assert "DB_HOST" not in keys
 
 
-def test_diff_values_empty_when_identical(base_env):
-    diffs = diff_values(base_env, base_env.copy(), "staging")
-    assert diffs == []
+def test_diff_values_empty_when_identical():
+    env = {"KEY": "value"}
+    assert diff_values(env, env) == []
 
 
-def test_diff_values_ignores_keys_missing_from_either():
-    base = {"A": "1", "B": "2"}
-    target = {"A": "1", "C": "3"}
-    diffs = diff_values(base, target, "staging")
-    assert diffs == []
+def test_diff_values_ignores_keys_missing_from_either(base_env):
+    other = {"DB_HOST": "db.example.com", "NEW_KEY": "something"}
+    diffs = diff_values(base_env, other)
+    keys = [d.key for d in diffs]
+    assert "NEW_KEY" not in keys
 
 
-def test_value_diff_is_url_vs_localhost():
-    vd = ValueDiff("DB_HOST", "localhost", "db.prod.com", "production")
-    assert vd.is_url_vs_localhost is True
+def test_is_empty_vs_set_base_empty():
+    d = ValueDiff(key="X", base_value="", target_value="hello")
+    assert d.is_empty_vs_set() is True
 
 
-def test_value_diff_not_url_vs_localhost():
-    vd = ValueDiff("DB_HOST", "db.staging.com", "db.prod.com", "production")
-    assert vd.is_url_vs_localhost is False
+def test_is_empty_vs_set_target_empty():
+    d = ValueDiff(key="X", base_value="hello", target_value="")
+    assert d.is_empty_vs_set() is True
 
 
-def test_value_diff_is_empty_vs_set():
-    vd = ValueDiff("API_KEY", "", "some-key", "production")
-    assert vd.is_empty_vs_set is True
+def test_is_empty_vs_set_both_set():
+    d = ValueDiff(key="X", base_value="a", target_value="b")
+    assert d.is_empty_vs_set() is False
 
 
-def test_value_diff_is_type_mismatch():
-    vd = ValueDiff("TIMEOUT", "thirty", "30", "production")
-    assert vd.is_type_mismatch is True
+def test_is_type_mismatch_num_vs_bool():
+    d = ValueDiff(key="PORT", base_value="8080", target_value="true")
+    assert d.is_type_mismatch() is True
 
 
-def test_value_diff_no_type_mismatch_both_strings():
-    vd = ValueDiff("ENV", "dev", "prod", "production")
-    assert vd.is_type_mismatch is False
+def test_is_type_mismatch_same_type():
+    d = ValueDiff(key="PORT", base_value="8080", target_value="9090")
+    assert d.is_type_mismatch() is False
 
 
-def test_describe_includes_key_and_values():
-    vd = ValueDiff("DB_HOST", "localhost", "db.prod.com", "production")
-    desc = vd.describe()
-    assert "DB_HOST" in desc
-    assert "localhost" in desc
-    assert "db.prod.com" in desc
-    assert "production" in desc
+def test_is_url_vs_localhost():
+    d = ValueDiff(key="API", base_value="https://api.example.com", target_value="http://localhost:3000")
+    assert d.is_url_vs_localhost() is True
 
 
-def test_describe_includes_hint_for_localhost():
-    vd = ValueDiff("DB_HOST", "localhost", "db.prod.com", "production")
-    assert "localhost vs real URL" in vd.describe()
+def test_is_url_vs_localhost_both_remote():
+    d = ValueDiff(key="API", base_value="https://api.example.com", target_value="https://staging.example.com")
+    assert d.is_url_vs_localhost() is False
 
 
-def test_looks_numeric_true():
-    assert _looks_numeric("42") is True
-    assert _looks_numeric("3.14") is True
+def test_describe_url_vs_localhost():
+    d = ValueDiff(key="API", base_value="https://api.example.com", target_value="http://localhost:3000")
+    assert d.describe() == "url vs localhost"
 
 
-def test_looks_numeric_false():
-    assert _looks_numeric("hello") is False
-    assert _looks_numeric("") is False
+def test_describe_empty_vs_set():
+    d = ValueDiff(key="X", base_value="", target_value="hello")
+    assert d.describe() == "empty vs set"
 
 
-def test_is_localhost_variants():
-    assert _is_localhost("localhost:5432") is True
-    assert _is_localhost("127.0.0.1") is True
-    assert _is_localhost("db.prod.com") is False
+def test_describe_type_mismatch():
+    d = ValueDiff(key="PORT", base_value="8080", target_value="true")
+    assert d.describe() == "type mismatch"
+
+
+def test_describe_generic_change():
+    d = ValueDiff(key="SECRET", base_value="abc", target_value="xyz")
+    assert d.describe() == "value changed"

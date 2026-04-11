@@ -1,72 +1,51 @@
-"""Value-level diff utilities for comparing individual env variable values."""
 from dataclasses import dataclass
-from typing import Optional
-import re
+from typing import Dict, List, Optional
 
 
 @dataclass
 class ValueDiff:
     key: str
-    base_value: str
-    target_value: str
-    environment: str
+    base_value: Optional[str]
+    target_value: Optional[str]
 
-    @property
     def is_empty_vs_set(self) -> bool:
-        """One side is empty/missing value while the other has content."""
-        return bool(self.base_value) != bool(self.target_value)
+        return (self.base_value == "" and bool(self.target_value)) or \
+               (self.target_value == "" and bool(self.base_value))
 
-    @property
     def is_type_mismatch(self) -> bool:
-        """Values look like different types (e.g. number vs string)."""
-        return _looks_numeric(self.base_value) != _looks_numeric(self.target_value)
+        if self.base_value is None or self.target_value is None:
+            return False
+        base_is_num = self.base_value.isdigit()
+        target_is_num = self.target_value.isdigit()
+        base_is_bool = self.base_value.lower() in ("true", "false")
+        target_is_bool = self.target_value.lower() in ("true", "false")
+        return (base_is_num != target_is_num) or (base_is_bool != target_is_bool)
 
-    @property
     def is_url_vs_localhost(self) -> bool:
-        """One value is a real URL, the other is localhost."""
-        return _is_localhost(self.base_value) != _is_localhost(self.target_value)
+        if self.base_value is None or self.target_value is None:
+            return False
+        values = {self.base_value.lower(), self.target_value.lower()}
+        has_url = any(v.startswith("http") and "localhost" not in v for v in values)
+        has_local = any("localhost" in v or "127.0.0.1" in v for v in values)
+        return has_url and has_local
 
     def describe(self) -> str:
-        hints = []
-        if self.is_empty_vs_set:
-            hints.append("one side is empty")
-        if self.is_type_mismatch:
-            hints.append("possible type mismatch")
-        if self.is_url_vs_localhost:
-            hints.append("localhost vs real URL")
-        hint_str = f" ({', '.join(hints)})" if hints else ""
-        return (
-            f"[{self.environment}] {self.key}: "
-            f"{self.base_value!r} -> {self.target_value!r}{hint_str}"
-        )
-
-
-def _looks_numeric(value: str) -> bool:
-    try:
-        float(value)
-        return True
-    except (ValueError, TypeError):
-        return False
-
-
-def _is_localhost(value: str) -> bool:
-    return bool(re.search(r'localhost|127\.0\.0\.1', value or "", re.IGNORECASE))
+        if self.is_url_vs_localhost():
+            return "url vs localhost"
+        if self.is_empty_vs_set():
+            return "empty vs set"
+        if self.is_type_mismatch():
+            return "type mismatch"
+        return "value changed"
 
 
 def diff_values(
-    base: dict[str, str],
-    target: dict[str, str],
-    environment: str,
-) -> list[ValueDiff]:
-    """Return ValueDiff entries for keys present in both but with different values."""
+    base: Dict[str, str],
+    target: Dict[str, str],
+) -> List[ValueDiff]:
     diffs = []
     common_keys = set(base.keys()) & set(target.keys())
     for key in sorted(common_keys):
         if base[key] != target[key]:
-            diffs.append(ValueDiff(
-                key=key,
-                base_value=base[key],
-                target_value=target[key],
-                environment=environment,
-            ))
+            diffs.append(ValueDiff(key=key, base_value=base[key], target_value=target[key]))
     return diffs
